@@ -1,0 +1,75 @@
+
+<!doctype html>
+<html lang=fr>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title or 'Challenge WestPistards' }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#f6f8fb; --card:#ffffff; --border:#e5e7eb; --muted:#4b5563;
+      --text:#111827; --pri:#2563eb; --accent:#6366f1; --danger:#dc2626; --ok:#16a34a;
+    }
+    *{ box-sizing:border-box; }
+    body { margin:0; font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    a { color: var(--pri); text-decoration: none; }
+    .container { max-width: 980px; margin: 0 auto; padding: 24px; }
+    header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
+    .brand { font-weight:700; letter-spacing:.3px; display:flex; align-items:center; gap:10px; color:var(--text); }
+    .brand img.logo{ height:36px; width:auto; }
+    .nav a{ margin-left:16px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.05); }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+    .btn { display:inline-block; padding:10px 14px; border-radius:12px; border:1px solid var(--border); background:#fff; }
+    .btn.primary { background:linear-gradient(135deg, var(--pri), var(--accent)); color:#fff; font-weight:700; border:none; }
+    .flash { padding:10px 12px; border-radius:12px; margin:10px 0; font-size:14px; }
+    .flash.success { background:#ecfdf5; border:1px solid #10b981; }
+    .flash.danger { background:#fef2f2; border:1px solid var(--danger); }
+    .flash.warning { background:#fffbeb; border:1px solid #f59e0b; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:10px; border-bottom:1px solid var(--border); text-align:left; }
+    input, select { width:100%; background:#fff; border:1px solid var(--border); color:var(--text); padding:10px; border-radius:12px; }
+    label { font-size:14px; color: var(--muted); margin-bottom:6px; display:block; }
+    form .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:end; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; font-size:12px; }
+    .badge.ok { background:#ecfdf5; border-color:#a7f3d0; color:#065f46; }
+    .badge.wait { background:#fff7ed; border-color:#fed7aa; color:#9a3412; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <a href="/">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="logo" class="logo" onerror="this.style.display='none'"/>
+          Challenge WestPistards
+        </a>
+      </div>
+      <nav class="nav">
+        {% if user %}
+          <a href="{{ url_for('profil') }}">Mon profil</a>
+          <a class="btn" href="{{ url_for('add_chrono') }}">Ajouter un chrono</a>
+          <a href="{{ url_for('logout') }}">Se déconnecter</a>
+          {% if user['is_admin'] %} <a href="{{ url_for('admin_panel') }}">Admin</a> <a href="{{ url_for('admin_manches') }}">Gérer les manches</a>{% endif %}
+        {% else %}
+          <a href="{{ url_for('login') }}">Connexion</a>
+          <a class="btn" href="{{ url_for('register') }}">Inscription</a>
+        {% endif %}
+      </nav>
+    </header>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="flash {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

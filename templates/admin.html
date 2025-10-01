@@ -1,0 +1,37 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Panneau d'admin — Validation des chronos</h1>
+    {% if rows %}
+      <table>
+        <thead><tr><th>Pilote</th><th>Email</th><th>Manche</th><th>Chrono</th><th>Vidéo</th><th>Date</th><th>Note</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for c in rows %}
+          <tr>
+            <td>{{ c['pilote'] }}</td>
+            <td style="color:var(--muted)">{{ c['email'] }}</td>
+            <td>{{ c['manche'] }}</td>
+            <td><strong>{{ format_millis(c['millis']) }}</strong></td>
+            <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
+            <td>{{ c['date_run'] or c['created_at'][:10] }}</td>
+            <td>{{ c['comment'] or '—' }}</td>
+            <td>
+              <form method="post" action="{{ url_for('admin_approve') }}" style="display:inline">
+                <input type="hidden" name="chrono_id" value="{{ c['id'] }}" />
+                <button class="btn ok" type="submit">Valider</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_chronos_delete') }}" style="display:inline" onsubmit="return confirm('Supprimer ce chrono ?');">
+                <input type="hidden" name="chrono_id" value="{{ c['id'] }}" />
+                <button class="btn danger" type="submit">Supprimer</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>Aucun chrono en attente.</p>
+    {% endif %}
+  </div>
+{% endblock %}

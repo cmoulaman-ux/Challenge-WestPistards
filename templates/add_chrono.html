@@ -1,0 +1,46 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Ajouter / Mettre à jour un chrono</h1>
+    <form method="post">
+      <label>Choisir une manche existante</label>
+      <select name="manche_id" required>
+        {% for m in manches %}
+          <option value="{{ m['id'] }}" {% if m['is_closed'] and not (user and user['is_admin']) %}disabled{% endif %}>
+            {{ m['label'] }}{% if m['is_closed'] %} (clôturée){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+
+      {% if user and user['is_admin'] %}
+        <p style="color:var(--muted);margin:6px 0">…ou créer une nouvelle manche (réservé aux admins) :</p>
+        <input name="new_manche_label" placeholder="Ex: Manche 1 — Circuit Paul Ricard">
+      {% else %}
+        <p style="color:var(--muted);margin:6px 0">Sélectionne une manche ouverte dans la liste. Si aucune manche n'est disponible, contacte un administrateur.</p>
+      {% endif %}
+
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Chrono (mm:ss.mmm)</label>
+          <input name="chrono" placeholder="01:23.456" required>
+        </div>
+        <div>
+          <label>Lien YouTube (optionnel)</label>
+          <input name="youtube_url" placeholder="https://youtu.be/…">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Date du tour (optionnel)</label>
+          <input name="date_run" type="date">
+        </div>
+        <div>
+          <label>Note (optionnel)</label>
+          <input name="comment" placeholder="Pneus / météo / config…">
+        </div>
+      </div>
+      <div style="margin-top:12px"><button class="btn primary">Enregistrer</button></div>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,23 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Créer un compte</h1>
+    <form method="post">
+      <label>Nom du pilote</label>
+      <input name="name" required>
+      <div class="row">
+        <div>
+          <label>Email</label>
+          <input name="email" type="email" required>
+        </div>
+        <div>
+          <label>Mot de passe</label>
+          <input name="password" type="password" minlength="6" required>
+        </div>
+      </div>
+      <p style="color:var(--muted);font-size:14px;margin-top:6px">Les emails listés dans <code>ADMIN_EMAILS</code> auront un accès admin.</p>
+      <div style="margin-top:12px"><button class="btn primary">Créer</button></div>
+    </form>
+  </div>
+{% endblock %}

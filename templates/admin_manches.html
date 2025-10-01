@@ -1,0 +1,50 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Gestion des manches</h1>
+    <form method="post" action="{{ url_for('admin_manches_create') }}" enctype="multipart/form-data" style="margin-bottom:16px">
+      <label>Créer une nouvelle manche</label>
+      <div class="row">
+        <div><input name="label" placeholder="Ex: Manche 3 — Magny-Cours" required></div>
+        <div>
+          <label>Plan (image ou PDF)</label>
+          <input type="file" name="plan" accept="image/*,.pdf">
+        </div>
+        <div><button class="btn primary" type="submit">Créer</button></div>
+      </div>
+    </form>
+
+    <table>
+      <thead><tr><th>Manche</th><th>Statut</th><th>Plan</th><th>Chronos validés</th><th>Meilleur</th><th>Créée</th><th>Clôturée</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for m in manches %}
+        <tr>
+          <td>{{ m['label'] }}</td>
+          <td>{% if m['is_closed'] %}<span class="badge">clôturée</span>{% else %}<span class="badge ok">ouverte</span>{% endif %}</td>
+          <td>{% if m['plan_path'] %}<a href="{{ url_for('plan_view', manche_id=m['id']) }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
+          <td>{{ m['nb_chronos'] or 0 }}</td>
+          <td>{% if m['meilleur'] %}{{ format_millis(m['meilleur']) }}{% else %}—{% endif %}</td>
+          <td>{{ m['created_at'][:19].replace('T',' ') }}</td>
+          <td>{% if m['closed_at'] %}{{ m['closed_at'][:19].replace('T',' ') }}{% else %}—{% endif %}</td>
+          <td>
+            <a class="btn" href="{{ url_for('admin_manche_chronos', manche_id=m['id']) }}">Chronos</a>
+            <form method="post" action="{{ url_for('admin_manches_toggle') }}" style="display:inline">
+              <input type="hidden" name="manche_id" value="{{ m['id'] }}">
+              {% if m['is_closed'] %}
+              <button class="btn ok" type="submit">Rouvrir</button>
+              {% else %}
+              <button class="btn danger" type="submit">Clôturer</button>
+              {% endif %}
+            </form>
+            <form method="post" action="{{ url_for('admin_manches_delete') }}" style="display:inline" onsubmit="return confirm('Supprimer définitivement cette manche et tous ses chronos ?');">
+              <input type="hidden" name="manche_id" value="{{ m['id'] }}">
+              <button class="btn danger" type="submit">Supprimer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

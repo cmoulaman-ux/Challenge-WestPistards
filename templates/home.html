@@ -1,0 +1,32 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1 style="margin-top:0">Manches</h1>
+    {% if manches %}
+      <div class="grid">
+        {% for m in manches %}
+          <div class="card">
+            <h3 style="margin:0 0 6px 0">{{ m['label'] }} {% if m['is_closed'] %}<span class="badge">clôturée</span>{% endif %}</h3>
+            <div style="font-size:14px;color:var(--muted)">
+              {{ m['nb_chronos'] or 0 }} chrono(s) —
+              {% if m['meilleur'] %}
+                meilleur: {{ format_millis(m['meilleur']) }}
+              {% else %}
+                pas encore de chrono
+              {% endif %}
+            </div>
+            <div style="margin-top:12px; display:flex; gap:8px">
+              <a class="btn" href="{{ url_for('manche_detail', manche_id=m['id']) }}">Voir classement</a>
+              {% if m['plan_path'] %}
+                <a class="btn" href="{{ url_for('plan_view', manche_id=m['id']) }}" target="_blank">📄 Plan</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>Aucune manche pour le moment. {% if user %}<a href="{{ url_for('add_chrono') }}">Ajoute un chrono</a>{% endif %}</p>
+    {% endif %}
+  </div>
+{% endblock %}

@@ -1,0 +1,37 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>{{ manche['label'] }} {% if manche['is_closed'] %}<span class="badge">clôturée</span>{% endif %}</h1>
+    {% if manche['plan_path'] %}
+      <div style="margin:8px 0">
+        <a class="btn" href="{{ url_for('plan_view', manche_id=manche['id']) }}" target="_blank">📄 Voir le plan</a>
+      </div>
+      {% if is_image(manche['plan_path']) %}
+        <img src="{{ url_for('plan_view', manche_id=manche['id']) }}" alt="Plan de la manche" style="max-width:100%;border:1px solid var(--border);border-radius:12px;margin-bottom:12px" />
+      {% endif %}
+    {% endif %}
+
+    {% if leaderboard %}
+      <table>
+        <thead><tr><th>#</th><th>Pilote</th><th>Chrono</th><th>Écart</th><th>% du meilleur</th><th>Vidéo</th><th>Date tour</th><th>Note</th></tr></thead>
+        <tbody>
+          {% for row in leaderboard %}
+            <tr>
+              <td><strong>{{ row['rank'] }}</strong></td>
+              <td>{{ row['name'] }}</td>
+              <td><strong>{{ format_millis(row['millis']) }}</strong></td>
+              <td>{% if row['rank'] == 1 %}—{% else %}{{ format_delta(row['delta_ms']) }}{% endif %}</td>
+              <td>{% if row['percent'] %}{{ '%.2f'|format(row['percent']) }}%{% else %}—{% endif %}</td>
+              <td>{% if row['youtube_url'] %}<a href="{{ row['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
+              <td>{{ row['date_run'] or row['created_at'][:10] }}</td>
+              <td>{{ row['comment'] or '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>Pas encore de chrono validé pour cette manche.</p>
+    {% endif %}
+  </div>
+{% endblock %}
