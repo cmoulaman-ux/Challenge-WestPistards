@@ -11,7 +11,7 @@
             <div style="font-size:14px;color:var(--muted)">
               {{ m['nb_chronos'] or 0 }} chrono(s) —
               {% if m['meilleur'] %}
-                meilleur: {{ format_millis(m['meilleur']) }}
+                meilleur (ajusté): {{ format_millis(m['meilleur']) }}
               {% else %}
                 pas encore de chrono
               {% endif %}

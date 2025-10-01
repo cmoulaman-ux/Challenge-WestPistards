@@ -1,0 +1,70 @@
+
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Chronos — {{ manche['label'] }}</h1>
+    <p style="margin-top:-8px;color:var(--muted)">
+      <a href="{{ url_for('admin_manches_list') }}">← Retour à la gestion des manches</a>
+    </p>
+
+    {% if chronos %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Pilote</th>
+            <th>Chrono final</th>
+            <th>Pén.</th>
+            <th>Écart</th>
+            <th>% du meilleur</th>
+            <th>Vidéo</th>
+            <th>Date</th>
+            <th>Note</th>
+            <th>Statut</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for c in chronos %}
+          <tr>
+            <td>{% if c['rank'] %}<strong>{{ c['rank'] }}</strong>{% else %}—{% endif %}</td>
+            <td>{{ c['pilote'] }}</td>
+            <td><strong>{{ format_millis(c['adj_millis']) }}</strong></td>
+            <td>{{ c['penalties'] or 0 }}</td>
+            <td>
+              {% if c['rank'] and c['rank'] > 1 %}
+                {{ format_delta(c['delta_ms']) }}
+              {% else %}—{% endif %}
+            </td>
+            <td>{% if c['percent'] %}{{ '%.2f'|format(c['percent']) }}%{% else %}—{% endif %}</td>
+            <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
+            <td>{{ c['date_run'] or c['created_at'][:10] }}</td>
+            <td>{{ c['comment'] or '—' }}</td>
+            <td>
+              {% if c['approved'] %}
+                <span class="badge ok">validé</span>
+              {% else %}
+                <span class="badge wait">en attente</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not c['approved'] %}
+                <form method="post" action="{{ url_for('admin_chronos_approve') }}" style="display:inline">
+                  <input type="hidden" name="chrono_id" value="{{ c['id'] }}">
+                  <button class="btn ok" type="submit">Valider</button>
+                </form>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin_chronos_delete') }}" style="display:inline" onsubmit="return confirm('Supprimer ce chrono ?');">
+                <input type="hidden" name="chrono_id" value="{{ c['id'] }}">
+                <button class="btn danger" type="submit">Supprimer</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>Aucun chrono pour cette manche.</p>
+    {% endif %}
+  </div>
+{% endblock %}

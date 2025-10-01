@@ -14,13 +14,14 @@
 
     {% if leaderboard %}
       <table>
-        <thead><tr><th>#</th><th>Pilote</th><th>Chrono</th><th>Écart</th><th>% du meilleur</th><th>Vidéo</th><th>Date tour</th><th>Note</th></tr></thead>
+        <thead><tr><th>#</th><th>Pilote</th><th>Chrono final</th><th>Pén.</th><th>Écart</th><th>% du meilleur</th><th>Vidéo</th><th>Date tour</th><th>Note</th></tr></thead>
         <tbody>
           {% for row in leaderboard %}
             <tr>
               <td><strong>{{ row['rank'] }}</strong></td>
               <td>{{ row['name'] }}</td>
-              <td><strong>{{ format_millis(row['millis']) }}</strong></td>
+              <td><strong>{{ format_millis(row['adj_millis']) }}</strong></td>
+              <td>{{ row['penalties'] or 0 }}</td>
               <td>{% if row['rank'] == 1 %}—{% else %}{{ format_delta(row['delta_ms']) }}{% endif %}</td>
               <td>{% if row['percent'] %}{{ '%.2f'|format(row['percent']) }}%{% else %}—{% endif %}</td>
               <td>{% if row['youtube_url'] %}<a href="{{ row['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>

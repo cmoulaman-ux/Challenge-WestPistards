@@ -53,7 +53,7 @@
           <a href="{{ url_for('profil') }}">Mon profil</a>
           <a class="btn" href="{{ url_for('add_chrono') }}">Ajouter un chrono</a>
           <a href="{{ url_for('logout') }}">Se déconnecter</a>
-          {% if user['is_admin'] %} <a href="{{ url_for('admin_panel') }}">Admin</a> <a href="{{ url_for('admin_manches') }}">Gérer les manches</a>{% endif %}
+          {% if user['is_admin'] %} <a href="{{ url_for('admin_chronos_pending') }}">Admin</a> <a href="{{ url_for('admin_manches_list') }}">Gérer les manches</a>{% endif %}
         {% else %}
           <a href="{{ url_for('login') }}">Connexion</a>
           <a class="btn" href="{{ url_for('register') }}">Inscription</a>

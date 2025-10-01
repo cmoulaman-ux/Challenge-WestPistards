@@ -7,12 +7,13 @@
     <h3>Mes chronos</h3>
     {% if chronos %}
       <table>
-        <thead><tr><th>Manche</th><th>Chrono</th><th>Vidéo</th><th>Statut</th><th>Date tour</th><th>Note</th></tr></thead>
+        <thead><tr><th>Manche</th><th>Chrono final</th><th>Pén.</th><th>Vidéo</th><th>Statut</th><th>Date tour</th><th>Note</th></tr></thead>
         <tbody>
           {% for c in chronos %}
             <tr>
               <td><a href="{{ url_for('manche_detail', manche_id=c['manche_id']) }}">{{ c['label'] }}</a></td>
-              <td>{{ format_millis(c['millis']) }}</td>
+              <td>{{ format_millis(c['millis'] + (c['penalties'] or 0) * 1000) }}</td>
+              <td>{{ c['penalties'] or 0 }}</td>
               <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">YouTube</a>{% else %}—{% endif %}</td>
               <td>{% if c['approved'] %}<span class="badge ok">validé</span>{% else %}<span class="badge wait">en attente</span>{% endif %}</td>
               <td>{{ c['date_run'] or c['created_at'][:10] }}</td>

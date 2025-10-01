@@ -26,15 +26,21 @@
           <input name="chrono" placeholder="01:23.456" required>
         </div>
         <div>
-          <label>Lien YouTube (optionnel)</label>
-          <input name="youtube_url" placeholder="https://youtu.be/…">
+          <label>Pénalités (nb, +1s chacune)</label>
+          <input name="penalties" type="number" min="0" value="0">
         </div>
       </div>
       <div class="row" style="margin-top:12px">
         <div>
+          <label>Lien YouTube (optionnel)</label>
+          <input name="youtube_url" placeholder="https://youtu.be/…">
+        </div>
+        <div>
           <label>Date du tour (optionnel)</label>
           <input name="date_run" type="date">
         </div>
+      </div>
+      <div class="row" style="margin-top:12px">
         <div>
           <label>Note (optionnel)</label>
           <input name="comment" placeholder="Pneus / météo / config…">

@@ -1,13 +1,12 @@
 # ─────────────────────────────────────────────────────────────
-# Challenge WestPistards — MVP Flask (v2)
-# Changements clés de cette version :
-#  • Les NON‑ADMINS ne peuvent PLUS créer de manche : dans le formulaire d'ajout
-#    de chrono, ils ont UNIQUEMENT un menu déroulant de manches existantes.
-#    (Le back‑end refuse aussi toute création côté non‑admin.)
-#  • Admin : peut créer une manche (avec « plan » image/PDF), clôturer / rouvrir,
-#    supprimer, valider ou supprimer des chronos.
-#  • Thème clair + logo (static/logo.png). Aperçu du plan si image.
-#  • Classement : rang #, écart au meilleur, % du meilleur (sur chronos validés).
+# Challenge WestPistards — MVP Flask (v3.2)
+# OBJET : Ajout des PÉNALITÉS (+1s par pénalité) et nettoyage admin
+#  • Colonne DB: chronos.penalties (INTEGER, default 0)
+#  • Formulaire: champ "Pénalités" (nombre, >=0)
+#  • Classements calculés sur chrono ajusté = millis + penalties*1000
+#  • Affichages : "Chrono final" + colonne "Pén." (nb pénalités)
+#  • Admin : vues mises à jour (validation/suppression chronos, gestion manches)
+#  • Thème clair + logo (static/logo.png), plan image/PDF par manche
 # Lancement :
 #   1) python3 -m venv .venv && source .venv/bin/activate
 #   2) python3 -m pip install --upgrade pip setuptools wheel
@@ -19,19 +18,18 @@
 from flask import Flask, g, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from functools import wraps
 import os, sqlite3, re, time
 from datetime import datetime
 
 APP_SECRET = os.environ.get("APP_SECRET", "dev-secret-change-me")
-DB_PATH = os.path.join(os.path.dirname(__file__), "chronos.db")
-
+BASE_DIR = os.path.dirname(__file__)
 app = Flask(__name__)
 app.config.update(SECRET_KEY=APP_SECRET)
 
 # ─────────── Uploads & statiques ───────────
-BASE_DIR = os.path.dirname(__file__)
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-PLAN_DIR = os.path.join(UPLOAD_DIR, "plans")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "chronos.db"))
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))PLAN_DIR = os.path.join(UPLOAD_DIR, "plans")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 os.makedirs(PLAN_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
@@ -80,6 +78,7 @@ CREATE TABLE IF NOT EXISTS chronos (
     user_id INTEGER NOT NULL,
     manche_id INTEGER NOT NULL,
     millis INTEGER NOT NULL,
+    penalties INTEGER NOT NULL DEFAULT 0,
     youtube_url TEXT,
     date_run TEXT,
     comment TEXT,
@@ -94,7 +93,7 @@ CREATE TABLE IF NOT EXISTS chronos (
 with sqlite3.connect(DB_PATH) as conn:
     conn.executescript(SCHEMA)
 
-# Migrations légères (ajoute colonnes manquantes sans casser les données existantes)
+# Migrations légères (ajoute les colonnes manquantes sans casser les données)
 with sqlite3.connect(DB_PATH) as conn:
     conn.row_factory = sqlite3.Row
     def ensure_col(table: str, col: str, ddl: str) -> None:
@@ -110,9 +109,12 @@ with sqlite3.connect(DB_PATH) as conn:
     ensure_col("chronos", "approved", "INTEGER NOT NULL DEFAULT 0")
     ensure_col("chronos", "date_run", "TEXT")
     ensure_col("chronos", "comment", "TEXT")
+    ensure_col("chronos", "penalties", "INTEGER NOT NULL DEFAULT 0")
 
 # ─────────── Utilitaires ───────────
 YOUTUBE_RE = re.compile(r"^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+", re.IGNORECASE)
+
+# Conversion / formatage temps
 
 def parse_chrono_to_millis(txt: str) -> int:
     txt = txt.strip()
@@ -182,17 +184,23 @@ def require_auth():
         flash("Connecte-toi d'abord.", "warning")
         return redirect(url_for("login"))
 
+# Décorateur admin
 
-def require_admin():
-    u = current_user()
-    if not u:
-        return require_auth()
-    if not u["is_admin"]:
-        flash("Accès admin requis.", "danger")
-        return redirect(url_for("home"))
-    return u
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        u = current_user()
+        if not u:
+            flash("Connecte-toi d'abord.", "warning")
+            return redirect(url_for("login"))
+        if not u["is_admin"]:
+            flash("Accès admin requis.", "danger")
+            return redirect(url_for("home"))
+        g.admin = u
+        return fn(*args, **kwargs)
+    return wrapper
 
-# ─────────── Routes ───────────
+# ─────────── Routes publiques ───────────
 @app.route("/")
 def home():
     db = get_db()
@@ -200,7 +208,7 @@ def home():
         """
         SELECT m.id, m.label, m.is_closed, m.plan_path,
                COUNT(CASE WHEN c.approved=1 THEN 1 END) AS nb_chronos,
-               MIN(CASE WHEN c.approved=1 THEN c.millis END) AS meilleur
+               MIN(CASE WHEN c.approved=1 THEN (c.millis + COALESCE(c.penalties,0)*1000) END) AS meilleur
         FROM manches m
         LEFT JOIN chronos c ON c.manche_id = m.id
         GROUP BY m.id
@@ -263,7 +271,7 @@ def profil():
     db = get_db()
     chronos = db.execute(
         """
-        SELECT c.id, c.millis, c.youtube_url, c.date_run, c.comment, c.created_at, c.approved,
+        SELECT c.id, c.millis, c.penalties, c.youtube_url, c.date_run, c.comment, c.created_at, c.approved,
                m.label, m.id as manche_id
         FROM chronos c JOIN manches m ON m.id = c.manche_id
         WHERE c.user_id = ?
@@ -282,21 +290,22 @@ def manche_detail(manche_id):
         return redirect(url_for("home"))
     rows = db.execute(
         """
-        SELECT u.name, c.millis, c.youtube_url, c.date_run, c.comment, c.created_at
+        SELECT u.name, c.millis, c.penalties, c.youtube_url, c.date_run, c.comment, c.created_at
         FROM chronos c JOIN users u ON u.id = c.user_id
         WHERE c.manche_id = ? AND c.approved = 1
-        ORDER BY c.millis ASC
+        ORDER BY (c.millis + COALESCE(c.penalties,0)*1000) ASC
         """,
         (manche_id,),
     ).fetchall()
     leaderboard = []
     if rows:
-        best_ms = rows[0]["millis"]
+        best_adj = rows[0]["millis"] + (rows[0]["penalties"] or 0) * 1000
         for idx, r in enumerate(rows, start=1):
-            delta = r["millis"] - best_ms
-            percent = (r["millis"] / best_ms) * 100.0 if best_ms else None
+            adj = r["millis"] + (r["penalties"] or 0) * 1000
+            delta = adj - best_adj
+            percent = (adj / best_adj) * 100.0 if best_adj else None
             d = dict(r)
-            d.update(rank=idx, delta_ms=delta, percent=percent)
+            d.update(rank=idx, delta_ms=delta, percent=percent, adj_millis=adj)
             leaderboard.append(d)
     return render_template("manche.html", manche=manche, leaderboard=leaderboard)
 
@@ -308,11 +317,10 @@ def add_chrono():
     db = get_db()
 
     if request.method == "POST":
-        # 1) Récupère la manche SÉLECTIONNÉE (toujours requise)
         manche_id = request.form.get("manche_id")
         new_manche_label = request.form.get("new_manche_label", "").strip()
 
-        # 2) Si pas de manche sélectionnée et que l'utilisateur est admin, il peut créer avec new_manche_label
+        # Sélection obligatoire pour non-admin
         if not manche_id:
             if u["is_admin"] and new_manche_label:
                 db.execute(
@@ -325,7 +333,6 @@ def add_chrono():
                 flash("Sélectionne une manche existante dans la liste.", "danger")
                 return redirect(url_for("add_chrono"))
 
-        # 3) Vérifie la manche (ouverte)
         m = db.execute("SELECT id, is_closed FROM manches WHERE id=?", (manche_id,)).fetchone()
         if not m:
             flash("Manche invalide.", "danger")
@@ -334,8 +341,8 @@ def add_chrono():
             flash("Cette manche est clôturée. Impossible d'ajouter ou modifier un chrono.", "danger")
             return redirect(url_for("add_chrono"))
 
-        # 4) Données chrono
         chrono_txt = request.form.get("chrono", "").strip()
+        penalties_txt = request.form.get("penalties", "0").strip()
         youtube_url = request.form.get("youtube_url", "").strip()
         date_run = request.form.get("date_run", "").strip() or None
         comment = request.form.get("comment", "").strip() or None
@@ -344,25 +351,29 @@ def add_chrono():
         except Exception:
             flash("Format de chrono invalide. Ex: 01:23.456", "danger")
             return redirect(url_for("add_chrono"))
+        try:
+            penalties = max(0, int(penalties_txt or "0"))
+        except ValueError:
+            penalties = 0
         if youtube_url and not YOUTUBE_RE.match(youtube_url):
             flash("Lien YouTube invalide.", "danger")
             return redirect(url_for("add_chrono"))
 
-        # 5) Upsert du chrono (un par pilote/manche)
         try:
             db.execute(
                 """
-                INSERT INTO chronos(user_id, manche_id, millis, youtube_url, date_run, comment, approved, created_at)
-                VALUES (?,?,?,?,?,?,0,?)
+                INSERT INTO chronos(user_id, manche_id, millis, penalties, youtube_url, date_run, comment, approved, created_at)
+                VALUES (?,?,?,?,?,?,?,0,?)
                 ON CONFLICT(user_id, manche_id) DO UPDATE SET
                     millis=excluded.millis,
+                    penalties=excluded.penalties,
                     youtube_url=excluded.youtube_url,
                     date_run=excluded.date_run,
                     comment=excluded.comment,
                     approved=0,
                     created_at=excluded.created_at
                 """,
-                (u["id"], m["id"], ms, youtube_url or None, date_run, comment, datetime.utcnow().isoformat()),
+                (u["id"], m["id"], ms, penalties, youtube_url or None, date_run, comment, datetime.utcnow().isoformat()),
             )
             db.commit()
             flash("Chrono enregistré (en attente de validation)", "success")
@@ -371,23 +382,21 @@ def add_chrono():
             db.rollback()
             flash("Erreur d'enregistrement.", "danger")
 
-    # GET : liste de manches. Non‑admin → seulement les ouvertes; Admin → toutes, mais les clôturées désactivées.
+    # GET : liste de manches
     if u["is_admin"]:
         manches = db.execute("SELECT id, label, is_closed FROM manches ORDER BY created_at DESC").fetchall()
     else:
         manches = db.execute("SELECT id, label, is_closed FROM manches WHERE is_closed=0 ORDER BY created_at DESC").fetchall()
     return render_template("add_chrono.html", user=u, manches=manches)
 
-# ─────────── Admin : validation chronos ───────────
+# ─────────── Routes ADMIN ───────────
 @app.route("/admin")
-def admin_panel():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
+@admin_required
+def admin_chronos_pending():
     db = get_db()
     rows = db.execute(
         """
-        SELECT c.id, c.millis, c.youtube_url, c.date_run, c.comment, c.created_at,
+        SELECT c.id, c.millis, c.penalties, c.youtube_url, c.date_run, c.comment, c.created_at,
                u.name as pilote, u.email,
                m.label as manche
         FROM chronos c
@@ -397,61 +406,53 @@ def admin_panel():
         ORDER BY c.created_at ASC
         """
     ).fetchall()
-    return render_template("admin.html", user=u, rows=rows)
+    return render_template("admin.html", user=g.admin, rows=rows)
 
-@app.route("/admin/approve", methods=["POST"])
-def admin_approve():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
+@app.route("/admin/chronos/approve", methods=["POST"])
+@admin_required
+def admin_chronos_approve():
     cid = request.form.get("chrono_id")
     db = get_db()
     db.execute("UPDATE chronos SET approved=1 WHERE id=?", (cid,))
     db.commit()
     flash("Chrono validé.", "success")
-    return redirect(url_for("admin_panel"))
+    return redirect(url_for("admin_chronos_pending"))
 
 @app.route("/admin/chronos/delete", methods=["POST"])
+@admin_required
 def admin_chronos_delete():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
     cid = request.form.get("chrono_id")
     db = get_db()
     db.execute("DELETE FROM chronos WHERE id=?", (cid,))
     db.commit()
     flash("Chrono supprimé.", "warning")
-    return redirect(request.referrer or url_for("admin_panel"))
+    return redirect(request.referrer or url_for("admin_chronos_pending"))
 
-# ─────────── Admin : Manches (créer / clore / rouvrir / supprimer) ───────────
 @app.route("/admin/manches")
-def admin_manches():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
+@admin_required
+def admin_manches_list():
     db = get_db()
     manches = db.execute(
         """
         SELECT m.id, m.label, m.is_closed, m.closed_at, m.plan_path, m.plan_name, m.created_at,
                COUNT(CASE WHEN c.approved=1 THEN 1 END) AS nb_chronos,
-               MIN(CASE WHEN c.approved=1 THEN c.millis END) AS meilleur
+               MIN(CASE WHEN c.approved=1 THEN (c.millis + COALESCE(c.penalties,0)*1000) END) AS meilleur
         FROM manches m
         LEFT JOIN chronos c ON c.manche_id = m.id
         GROUP BY m.id
         ORDER BY m.created_at DESC
         """
     ).fetchall()
-    return render_template("admin_manches.html", user=u, manches=manches)
+    return render_template("admin_manches.html", user=g.admin, manches=manches)
 
 @app.route("/admin/manches/create", methods=["POST"])
+@admin_required
 def admin_manches_create():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
     label = request.form.get("label", "").strip()
     if not label:
         flash("Nom de manche requis.", "danger")
-        return redirect(url_for("admin_manches"))
+        return redirect(url_for("admin_manches_list"))
+
     plan_file = request.files.get("plan")
     plan_path = None
     plan_name = None
@@ -460,13 +461,14 @@ def admin_manches_create():
         ext_ok = ("." in fname and fname.rsplit(".", 1)[1].lower() in ALLOWED_PLAN_EXT)
         if not ext_ok:
             flash("Format de plan non accepté (image ou PDF).", "danger")
-            return redirect(url_for("admin_manches"))
+            return redirect(url_for("admin_manches_list"))
         safe = secure_filename(fname)
         unique = f"{int(time.time())}_{safe}"
         save_path = os.path.join(PLAN_DIR, unique)
         plan_file.save(save_path)
         plan_path = save_path
         plan_name = fname
+
     db = get_db()
     try:
         db.execute(
@@ -477,19 +479,17 @@ def admin_manches_create():
         flash("Manche créée.", "success")
     except sqlite3.IntegrityError:
         flash("Ce nom de manche existe déjà.", "warning")
-    return redirect(url_for("admin_manches"))
+    return redirect(url_for("admin_manches_list"))
 
 @app.route("/admin/manches/toggle", methods=["POST"])
+@admin_required
 def admin_manches_toggle():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
     mid = request.form.get("manche_id")
     db = get_db()
     m = db.execute("SELECT is_closed FROM manches WHERE id=?", (mid,)).fetchone()
     if not m:
         flash("Manche introuvable.", "danger")
-        return redirect(url_for("admin_manches"))
+        return redirect(url_for("admin_manches_list"))
     if m["is_closed"]:
         db.execute("UPDATE manches SET is_closed=0, closed_at=NULL WHERE id=?", (mid,))
         flash("Manche rouverte.", "success")
@@ -497,16 +497,13 @@ def admin_manches_toggle():
         db.execute("UPDATE manches SET is_closed=1, closed_at=? WHERE id=?", (datetime.utcnow().isoformat(), mid))
         flash("Manche clôturée.", "warning")
     db.commit()
-    return redirect(url_for("admin_manches"))
+    return redirect(url_for("admin_manches_list"))
 
 @app.route("/admin/manches/delete", methods=["POST"])
+@admin_required
 def admin_manches_delete():
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
     mid = request.form.get("manche_id")
     db = get_db()
-    # supprimer le fichier plan si présent
     m = db.execute("SELECT plan_path FROM manches WHERE id=?", (mid,)).fetchone()
     try:
         if m and m["plan_path"] and os.path.exists(m["plan_path"]):
@@ -517,40 +514,42 @@ def admin_manches_delete():
     db.execute("DELETE FROM manches WHERE id=?", (mid,))
     db.commit()
     flash("Manche supprimée (et ses chronos).", "warning")
-    return redirect(url_for("admin_manches"))
+    return redirect(url_for("admin_manches_list"))
 
 @app.route("/admin/manche/<int:manche_id>/chronos")
+@admin_required
 def admin_manche_chronos(manche_id):
-    u = require_admin()
-    if not isinstance(u, sqlite3.Row):
-        return u
     db = get_db()
     manche = db.execute("SELECT id, label FROM manches WHERE id=?", (manche_id,)).fetchone()
     if not manche:
         flash("Manche introuvable.", "danger")
-        return redirect(url_for("admin_manches"))
+        return redirect(url_for("admin_manches_list"))
     rows = db.execute(
         """
-        SELECT c.id, u.name as pilote, u.email, c.millis, c.approved, c.youtube_url, c.date_run, c.comment, c.created_at
+        SELECT c.id, u.name as pilote, u.email, c.millis, c.penalties, c.approved, c.youtube_url, c.date_run, c.comment, c.created_at
         FROM chronos c JOIN users u ON u.id=c.user_id
         WHERE c.manche_id=?
-        ORDER BY c.millis ASC
+        ORDER BY (c.millis + COALESCE(c.penalties,0)*1000) ASC
         """,
         (manche_id,),
     ).fetchall()
-    best_ms_row = db.execute("SELECT MIN(millis) AS best FROM chronos WHERE manche_id=? AND approved=1", (manche_id,)).fetchone()
-    best_ms = best_ms_row["best"] if best_ms_row and best_ms_row["best"] is not None else None
+    best_ms_row = db.execute(
+        "SELECT MIN(millis + COALESCE(penalties,0)*1000) AS best FROM chronos WHERE manche_id=? AND approved=1",
+        (manche_id,)
+    ).fetchone()
+    best_adj = best_ms_row["best"] if best_ms_row and best_ms_row["best"] is not None else None
     chronos = []
     rank = 0
     for r in rows:
         r = dict(r)
+        adj = r["millis"] + (r.get("penalties") or 0) * 1000
         if r["approved"]:
             rank += 1
-        delta = (r["millis"] - best_ms) if (best_ms is not None and r["approved"]) else None
-        percent = (r["millis"]/best_ms*100.0) if (best_ms and r["approved"]) else None
-        r.update(rank=(rank if r["approved"] else None), delta_ms=delta, percent=percent)
+        delta = (adj - best_adj) if (best_adj is not None and r["approved"]) else None
+        percent = (adj / best_adj * 100.0) if (best_adj and r["approved"]) else None
+        r.update(rank=(rank if r["approved"] else None), delta_ms=delta, percent=percent, adj_millis=adj)
         chronos.append(r)
-    return render_template("admin_manche_chronos.html", user=u, manche=manche, chronos=chronos)
+    return render_template("admin_manche_chronos.html", user=g.admin, manche=manche, chronos=chronos)
 
 # Plan public
 @app.route("/plan/<int:manche_id>")
@@ -619,7 +618,7 @@ TEMPLATES = {
           <a href="{{ url_for('profil') }}">Mon profil</a>
           <a class="btn" href="{{ url_for('add_chrono') }}">Ajouter un chrono</a>
           <a href="{{ url_for('logout') }}">Se déconnecter</a>
-          {% if user['is_admin'] %} <a href="{{ url_for('admin_panel') }}">Admin</a> <a href="{{ url_for('admin_manches') }}">Gérer les manches</a>{% endif %}
+          {% if user['is_admin'] %} <a href="{{ url_for('admin_chronos_pending') }}">Admin</a> <a href="{{ url_for('admin_manches_list') }}">Gérer les manches</a>{% endif %}
         {% else %}
           <a href="{{ url_for('login') }}">Connexion</a>
           <a class="btn" href="{{ url_for('register') }}">Inscription</a>
@@ -654,7 +653,7 @@ TEMPLATES = {
             <div style="font-size:14px;color:var(--muted)">
               {{ m['nb_chronos'] or 0 }} chrono(s) —
               {% if m['meilleur'] %}
-                meilleur: {{ format_millis(m['meilleur']) }}
+                meilleur (ajusté): {{ format_millis(m['meilleur']) }}
               {% else %}
                 pas encore de chrono
               {% endif %}
@@ -731,12 +730,13 @@ TEMPLATES = {
     <h3>Mes chronos</h3>
     {% if chronos %}
       <table>
-        <thead><tr><th>Manche</th><th>Chrono</th><th>Vidéo</th><th>Statut</th><th>Date tour</th><th>Note</th></tr></thead>
+        <thead><tr><th>Manche</th><th>Chrono final</th><th>Pén.</th><th>Vidéo</th><th>Statut</th><th>Date tour</th><th>Note</th></tr></thead>
         <tbody>
           {% for c in chronos %}
             <tr>
               <td><a href="{{ url_for('manche_detail', manche_id=c['manche_id']) }}">{{ c['label'] }}</a></td>
-              <td>{{ format_millis(c['millis']) }}</td>
+              <td>{{ format_millis(c['millis'] + (c['penalties'] or 0) * 1000) }}</td>
+              <td>{{ c['penalties'] or 0 }}</td>
               <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">YouTube</a>{% else %}—{% endif %}</td>
               <td>{% if c['approved'] %}<span class="badge ok">validé</span>{% else %}<span class="badge wait">en attente</span>{% endif %}</td>
               <td>{{ c['date_run'] or c['created_at'][:10] }}</td>
@@ -780,15 +780,21 @@ TEMPLATES = {
           <input name="chrono" placeholder="01:23.456" required>
         </div>
         <div>
-          <label>Lien YouTube (optionnel)</label>
-          <input name="youtube_url" placeholder="https://youtu.be/…">
+          <label>Pénalités (nb, +1s chacune)</label>
+          <input name="penalties" type="number" min="0" value="0">
         </div>
       </div>
       <div class="row" style="margin-top:12px">
         <div>
+          <label>Lien YouTube (optionnel)</label>
+          <input name="youtube_url" placeholder="https://youtu.be/…">
+        </div>
+        <div>
           <label>Date du tour (optionnel)</label>
           <input name="date_run" type="date">
         </div>
+      </div>
+      <div class="row" style="margin-top:12px">
         <div>
           <label>Note (optionnel)</label>
           <input name="comment" placeholder="Pneus / météo / config…">
@@ -816,13 +822,14 @@ TEMPLATES = {
 
     {% if leaderboard %}
       <table>
-        <thead><tr><th>#</th><th>Pilote</th><th>Chrono</th><th>Écart</th><th>% du meilleur</th><th>Vidéo</th><th>Date tour</th><th>Note</th></tr></thead>
+        <thead><tr><th>#</th><th>Pilote</th><th>Chrono final</th><th>Pén.</th><th>Écart</th><th>% du meilleur</th><th>Vidéo</th><th>Date tour</th><th>Note</th></tr></thead>
         <tbody>
           {% for row in leaderboard %}
             <tr>
               <td><strong>{{ row['rank'] }}</strong></td>
               <td>{{ row['name'] }}</td>
-              <td><strong>{{ format_millis(row['millis']) }}</strong></td>
+              <td><strong>{{ format_millis(row['adj_millis']) }}</strong></td>
+              <td>{{ row['penalties'] or 0 }}</td>
               <td>{% if row['rank'] == 1 %}—{% else %}{{ format_delta(row['delta_ms']) }}{% endif %}</td>
               <td>{% if row['percent'] %}{{ '%.2f'|format(row['percent']) }}%{% else %}—{% endif %}</td>
               <td>{% if row['youtube_url'] %}<a href="{{ row['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
@@ -846,19 +853,20 @@ TEMPLATES = {
     <h1>Panneau d'admin — Validation des chronos</h1>
     {% if rows %}
       <table>
-        <thead><tr><th>Pilote</th><th>Email</th><th>Manche</th><th>Chrono</th><th>Vidéo</th><th>Date</th><th>Note</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Pilote</th><th>Email</th><th>Manche</th><th>Chrono</th><th>Pén.</th><th>Vidéo</th><th>Date</th><th>Note</th><th>Actions</th></tr></thead>
         <tbody>
           {% for c in rows %}
           <tr>
             <td>{{ c['pilote'] }}</td>
             <td style="color:var(--muted)">{{ c['email'] }}</td>
             <td>{{ c['manche'] }}</td>
-            <td><strong>{{ format_millis(c['millis']) }}</strong></td>
+            <td>{{ format_millis(c['millis']) }}</td>
+            <td>{{ c['penalties'] or 0 }}</td>
             <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
             <td>{{ c['date_run'] or c['created_at'][:10] }}</td>
             <td>{{ c['comment'] or '—' }}</td>
             <td>
-              <form method="post" action="{{ url_for('admin_approve') }}" style="display:inline">
+              <form method="post" action="{{ url_for('admin_chronos_approve') }}" style="display:inline">
                 <input type="hidden" name="chrono_id" value="{{ c['id'] }}" />
                 <button class="btn ok" type="submit">Valider</button>
               </form>
@@ -896,7 +904,7 @@ TEMPLATES = {
     </form>
 
     <table>
-      <thead><tr><th>Manche</th><th>Statut</th><th>Plan</th><th>Chronos validés</th><th>Meilleur</th><th>Créée</th><th>Clôturée</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Manche</th><th>Statut</th><th>Plan</th><th>Chronos validés</th><th>Meilleur (ajusté)</th><th>Créée</th><th>Clôturée</th><th>Actions</th></tr></thead>
       <tbody>
         {% for m in manches %}
         <tr>
@@ -929,6 +937,78 @@ TEMPLATES = {
   </div>
 {% endblock %}
 """,
+
+"admin_manche_chronos.html": r"""
+{% extends 'base.html' %}
+{% block content %}
+  <div class="card">
+    <h1>Chronos — {{ manche['label'] }}</h1>
+    <p style="margin-top:-8px;color:var(--muted)">
+      <a href="{{ url_for('admin_manches_list') }}">← Retour à la gestion des manches</a>
+    </p>
+
+    {% if chronos %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Pilote</th>
+            <th>Chrono final</th>
+            <th>Pén.</th>
+            <th>Écart</th>
+            <th>% du meilleur</th>
+            <th>Vidéo</th>
+            <th>Date</th>
+            <th>Note</th>
+            <th>Statut</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for c in chronos %}
+          <tr>
+            <td>{% if c['rank'] %}<strong>{{ c['rank'] }}</strong>{% else %}—{% endif %}</td>
+            <td>{{ c['pilote'] }}</td>
+            <td><strong>{{ format_millis(c['adj_millis']) }}</strong></td>
+            <td>{{ c['penalties'] or 0 }}</td>
+            <td>
+              {% if c['rank'] and c['rank'] > 1 %}
+                {{ format_delta(c['delta_ms']) }}
+              {% else %}—{% endif %}
+            </td>
+            <td>{% if c['percent'] %}{{ '%.2f'|format(c['percent']) }}%{% else %}—{% endif %}</td>
+            <td>{% if c['youtube_url'] %}<a href="{{ c['youtube_url'] }}" target="_blank">Voir</a>{% else %}—{% endif %}</td>
+            <td>{{ c['date_run'] or c['created_at'][:10] }}</td>
+            <td>{{ c['comment'] or '—' }}</td>
+            <td>
+              {% if c['approved'] %}
+                <span class="badge ok">validé</span>
+              {% else %}
+                <span class="badge wait">en attente</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if not c['approved'] %}
+                <form method="post" action="{{ url_for('admin_chronos_approve') }}" style="display:inline">
+                  <input type="hidden" name="chrono_id" value="{{ c['id'] }}">
+                  <button class="btn ok" type="submit">Valider</button>
+                </form>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin_chronos_delete') }}" style="display:inline" onsubmit="return confirm('Supprimer ce chrono ?');">
+                <input type="hidden" name="chrono_id" value="{{ c['id'] }}">
+                <button class="btn danger" type="submit">Supprimer</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>Aucun chrono pour cette manche.</p>
+    {% endif %}
+  </div>
+{% endblock %}
+""",
 }
 
 # Écrire les templates s'ils n'existent pas encore
@@ -941,4 +1021,9 @@ for name, content in TEMPLATES.items():
             f.write(content)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=(os.environ.get("FLASK_DEBUG") == "1"),
+    )
+
