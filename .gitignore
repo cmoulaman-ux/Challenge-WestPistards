@@ -2,6 +2,5 @@
 __pycache__/
 *.pyc
 .DS_Store
-# en test : on ignore la base locale et les uploads locaux
 chronos.db
 uploads/
