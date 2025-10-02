@@ -21,6 +21,9 @@ from werkzeug.utils import secure_filename
 from functools import wraps
 import os, sqlite3, re, time
 from datetime import datetime
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-only")
+
 
 # --- SEED ADMIN AU DEMARRAGE ---
 from werkzeug.security import generate_password_hash
