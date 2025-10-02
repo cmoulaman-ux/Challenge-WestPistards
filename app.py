@@ -24,6 +24,16 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-only")
 
+# --- ROUTES DIAGNOSTIC (AJOUTER) ---
+@app.get("/health")
+def health():
+    return "ok", 200
+
+@app.get("/diag")
+def diag():
+    return "<h1>Render OK</h1><p>La route /diag répond : le serveur tourne. On corrigera ensuite la route /.</p>", 200
+# --- FIN DIAGNOSTIC ---
+
 
 # --- SEED ADMIN AU DEMARRAGE ---
 from werkzeug.security import generate_password_hash
