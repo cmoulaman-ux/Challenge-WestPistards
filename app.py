@@ -22,6 +22,44 @@ from functools import wraps
 import os, sqlite3, re, time
 from datetime import datetime
 
+# --- SEED ADMIN AU DEMARRAGE ---
+from werkzeug.security import generate_password_hash
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get("DATABASE_URL", os.path.join(BASE_DIR, "chronos.db"))
+if DB_PATH.startswith("sqlite:///"):
+    DB_PATH = DB_PATH.replace("sqlite:///", "")
+
+ADMIN_EMAILS = [e.strip() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()]
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+def ensure_admins():
+    if not ADMIN_EMAILS or not ADMIN_PASSWORD:
+        return
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY,
+          email TEXT UNIQUE,
+          password TEXT,
+          is_admin INTEGER DEFAULT 0
+        )
+    """)
+    hashed = generate_password_hash(ADMIN_PASSWORD)
+    for email in ADMIN_EMAILS:
+        c.execute("""
+          INSERT INTO users (email, password, is_admin)
+          SELECT ?, ?, 1
+          WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = ?)
+        """, (email, hashed, email))
+    conn.commit(); conn.close()
+
+ensure_admins()
+# --- FIN SEED ADMIN ---
+
+
 APP_SECRET = os.environ.get("APP_SECRET", "dev-secret-change-me")
 BASE_DIR = os.path.dirname(__file__)
 app = Flask(__name__)
