@@ -29,7 +29,8 @@ app.config.update(SECRET_KEY=APP_SECRET)
 
 # ─────────── Uploads & statiques ───────────
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "chronos.db"))
-UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))PLAN_DIR = os.path.join(UPLOAD_DIR, "plans")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
+PLAN_DIR = os.path.join(UPLOAD_DIR, "plans")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 os.makedirs(PLAN_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
