@@ -24,14 +24,19 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-only")
 
-# --- ROUTES DIAGNOSTIC (AJOUTER) ---
+# --- ROUTES DIAGNOSTIC ---
 @app.get("/health")
 def health():
     return "ok", 200
 
 @app.get("/diag")
 def diag():
-    return "<h1>Render OK</h1><p>La route /diag répond : le serveur tourne. On corrigera ensuite la route /.</p>", 200
+    return "<h1>Render OK</h1><p>Route /diag présente.</p>", 200
+
+# TEMP : remplace provisoirement la page d'accueil pour tester
+@app.get("/")
+def home_minimal():
+    return "<h1>Accueil minimal</h1><p>Si tu vois ceci, le déploiement est bien pris en compte.</p>", 200
 # --- FIN DIAGNOSTIC ---
 
 
